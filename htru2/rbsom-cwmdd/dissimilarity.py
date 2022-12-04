@@ -13,6 +13,7 @@ if __name__ == '__main__':
     df = df.iloc[: , :-1]
     X = df.to_numpy()
     print(X.shape)
+    print(type(X))
 
     before = time.time()
     dist_mat = calculate_dissimilarity_matrix(X)
