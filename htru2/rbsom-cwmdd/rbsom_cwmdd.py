@@ -6,8 +6,20 @@ import pandas as pd
 import random
 from collections import defaultdict
 
+# Neighbourhood matrix
+H: np.ndarray
 
-def run(D, E: np.ndarray, p: int, C: int = 49, shape=(7, 7), n_iter: int = 50, q: int = 5, n: float = 1.1):
+# Cluster representatives matrix
+G: np.array
+
+# Matrix of relevance weights
+V: np.ndarray
+
+# Partition
+P: defaultdict
+
+
+def run(D: np.ndarray, E: np.ndarray, p: int, C: int = 49, shape=(7, 7), n_iter: int = 50, q: int = 5, n: float = 1.1):
     grid = np.random.random((shape[0], shape[1], p))
     x_max = shape[0] - 1
     y_max = shape[1] - 1
@@ -18,39 +30,94 @@ def run(D, E: np.ndarray, p: int, C: int = 49, shape=(7, 7), n_iter: int = 50, q
 
     # Initialization
     t = 0
-    sigma = sigma_0 * (sigma_f / sigma_0) ** (t / (n_iter - 1))
+    sigma = sigma_0 * (sigma_f / sigma_0)
 
-    h = calculate_neighbourhood_function(C, delta, sigma)
+    # init H
+    calculate_neighbourhood_function(C, delta, sigma)
 
-    G = init_cluster_representatives(C, E, q)
+    # init G
+    init_cluster_representatives(C, E, q)
 
-    V = init_matrix_of_relevance_weigths(C, q)
+    init_matrix_of_relevance_weigths(C, q)
 
+    # Initial assignment: obtain the initial partition
+    update_assignment(E, n, D, C)
+
+    N = E.shape[0]
+
+    while t < n_iter:
+        t += 1
+        sigma = sigma_0 * (sigma_f / sigma_0) ** t / n_iter
+        calculate_neighbourhood_function(C, delta, sigma)
+
+        # Step 1: representation: compute the elements of the vector of set-medoids
+        update_set_medoids(C, N, D, q)
+
+        #Step 2: weighting: compute the elements v[r,e] of the matrix of weights V
+        update_matrix_of_relevance_weights(N, n, D, C)
+
+        #Step 3: assignment: obtain the partition
+        update_assignment(E, n, D, C)
+
+
+def update_set_medoids(C, N, D, q):
+    g = dict()
+    for r in range(C):
+        for h in range(N):
+            g[h] = 0
+            for k in N:
+                h[h] += H[k, r] * D[k, h]
+        sorted_g: dict = sorted(g.items(), key=lambda x: x[1])
+        indices = sorted_g.keys()[:q]
+        G[r] = indices
+
+
+def update_matrix_of_relevance_weights(N, n, D, C):
+    for r in V.shape[0]:
+        for e in V.shape[1]:
+            for l in G[r]:
+                total_l = 0
+                #numerator
+                num_total = 0
+                for k in range(N):
+                    num_total += H[f(k, n, D, C), r]*D[k, G[e]]
+                #denominator
+                den_total = 0
+                for k in range(N):
+                    den_total += H[f(k, n, D, C), r]*D[k, G[l]]
+                total_l += (num_total/den_total)**(1/(n-1))
+            V[r,e] = 1/total_l
+
+def f(k, n, D, C):
+    r = -1
+    min_delta_V = sys.float_info.max
+    for s in range(C):
+        delta_V = calculate_delta_V(k, s, n, D, C)
+        if delta_V < min_delta_V:
+            min_delta_V = delta_V
+            r = s
+    return r
+
+
+def calculate_delta_V(k, s, n, D, C):
+    delta_V = 0
+    for r in range(C):
+        delta_V += H[s, r] * D_v_r(k, G[r], n, r, D)
+    return delta_V
+
+
+def D_v_r(k, Gr, n, r, D):
+    total = 0
+    for i in range(len(Gr)):
+        total += (V[r, i] ** n) * D[k, Gr[i]]
+
+
+def update_assignment(E, n, D, C):
     P = defaultdict([])
     for k in range(E.shape[0]):
-        r = f(E[k])
+        r = f(k, n, D, C)
         P[r].append(E[k])
-
-        def f(elem):
-            r = -1
-            min_delta_V = sys.float_info.max
-            for s in range(C):
-                delta_V = calculate_delta_V(elem, s)
-                if delta_V < min_delta_V:
-                    min_delta_V = delta_V
-                    r = s
-            return r
-
-        def calculate_delta_V(elem, s):
-            delta_V = 0
-            for r in range(C):
-                delta_V += h[s, r] * D_v_r(elem, G[r])
-            return delta_V
-
-        def D_v_r(elem, indices):
-            total = 0
-            for i in range(len(indices)):
-                total += (V[r, i] ** n) * D[k, indices[i]]
+    return P
 
 
 def init_matrix_of_relevance_weigths(C, q):
@@ -62,7 +129,6 @@ def init_matrix_of_relevance_weigths(C, q):
         values = [i / total for i in values]
         V.append(values)
     V = np.array(V)
-    return V
 
 
 def init_cluster_representatives(C, E, q):
@@ -73,17 +139,14 @@ def init_cluster_representatives(C, E, q):
         indices = np.random.choice(E.shape[0], q, replace=False)
         G.append(indices)
     G = np.array(G)
-    return G
 
 
 def calculate_neighbourhood_function(C, delta, sigma):
     # neighbourhood function
-    h = np.zeros((C, C))
+    H = np.zeros((C, C))
     for s in range(C):
         for r in range(C):
-            h[s, r] = math.exp(-(delta[s][r] / 2 * sigma ** 2))
-
-    return h
+            H[s, r] = math.exp(-(delta[s][r] / 2 * sigma ** 2))
 
 
 def calculate_grid_squared_distance_matrix(C, grid, shape):
