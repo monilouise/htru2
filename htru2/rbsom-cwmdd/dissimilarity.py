@@ -1,7 +1,8 @@
-import numpy as np
-from scipy.spatial import distance_matrix
-import pandas as pd
 import time
+
+import pandas as pd
+from scipy.spatial import distance_matrix
+
 
 def calculate_dissimilarity_matrix(X):
     dist_mat = distance_matrix(X, X, p=2)
