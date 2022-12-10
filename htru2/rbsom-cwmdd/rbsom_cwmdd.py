@@ -74,7 +74,7 @@ def run(D: np.ndarray, E: np.ndarray, C: int = 9, shape=(3, 3), n_iter: int = 50
         update_set_medoids(C, N, D, q)
 
         # Step 2: weighting: compute the elements v[r,e] of the matrix of weights V
-        update_matrix_of_relevance_weights(N, n, D, C)
+        update_matrix_of_relevance_weights(N, n, D)
 
         # Step 3: assignment: obtain the partition
         update_assignment(E, n, D, C)
@@ -117,20 +117,24 @@ def update_set_medoids_for_cluster(D, G, N, q, r, H, F):
     print('Time spent: ' + str(after - before) + ' seconds.')
 
 
-def update_matrix_of_relevance_weights(N, n, D, C):
+def update_matrix_of_relevance_weights(N, n, D):
     for r in range(V.shape[0]):
         for e in range(V.shape[1]):
+            # numerator
+            num_total = 0
+            for k in range(N):
+                num_total += H[F[k], r] * D[k, G[r, e]]
+
+            total_l = 0
+
+            # denominator
             for l in G[r]:
-                total_l = 0
-                # numerator
-                num_total = 0
-                for k in range(N):
-                    num_total += H[f(k, n, D, C), r] * D[k, G[e]]
-                # denominator
                 den_total = 0
                 for k in range(N):
-                    den_total += H[f(k, n, D, C), r] * D[k, G[l]]
+                    den_total += H[F[k], r] * D[k, l]
+
                 total_l += (num_total / den_total) ** (1 / (n - 1))
+
             V[r, e] = 1 / total_l
 
 
@@ -257,7 +261,8 @@ def normalize(dist_mat):
 
 if __name__ == '__main__':
     df = pd.read_csv('../../data/HTRU_2.csv', header=None)
-    df = df.iloc[:, :-1]
+    # df = df.iloc[:, :-1]
+    df = df.iloc[:100, :-1]
     X = df.to_numpy()
 
     dist_mat = None
