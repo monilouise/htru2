@@ -9,6 +9,8 @@ from dissimilarity import calculate_dissimilarity_matrix
 import pickle
 import time
 
+import multiprocessing
+
 # Neighbourhood matrix
 H: np.ndarray
 
@@ -80,22 +82,44 @@ def run(D: np.ndarray, E: np.ndarray, C: int = 9, shape=(3, 3), n_iter: int = 50
 
 def update_set_medoids(C, N, D, q):
     global G
+    global H
+    global F
+
+    before = time.time()
+    procs = C
+    jobs = []
+    for i in range(procs):
+        process = multiprocessing.Process(target=update_set_medoids_for_cluster, args=(D, G, N, q, i, H, F))
+        jobs.append(process)
+
+    # Start the threads
+    for j in jobs:
+        j.start()
+
+    # Ensure all of the threads have finished
+    for j in jobs:
+        j.join()
+
+    after = time.time()
+    print('Set-medoids updating complete.  Time elapsed = ' + str(after - before))
+
+
+def update_set_medoids_for_cluster(D, G, N, q, r, H, F):
     g = np.zeros(N)
-    for r in range(C):
-        print('Updating medoids for cluster ' + str(r) + '...')
-        before = time.time()
-        for h in range(N):
-            for k in range(N):
-                g[h] += H[F[k], r] * D[k, h]
-        indices = np.argsort(g)[:q]
-        G[r] = indices
-        after = time.time()
-        print('Time spent: ' + str(after - before) + ' seconds.')
+    print('Updating medoids for cluster ' + str(r) + '...')
+    before = time.time()
+    for h in range(N):
+        for k in range(N):
+            g[h] += H[F[k], r] * D[k, h]
+    indices = np.argsort(g)[:q]
+    G[r] = indices
+    after = time.time()
+    print('Time spent: ' + str(after - before) + ' seconds.')
 
 
 def update_matrix_of_relevance_weights(N, n, D, C):
-    for r in V.shape[0]:
-        for e in V.shape[1]:
+    for r in range(V.shape[0]):
+        for e in range(V.shape[1]):
             for l in G[r]:
                 total_l = 0
                 # numerator
