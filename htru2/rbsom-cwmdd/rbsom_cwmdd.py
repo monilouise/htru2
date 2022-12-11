@@ -10,6 +10,7 @@ import pickle
 import time
 
 import multiprocessing
+from numpy import linalg as LA
 
 # Neighbourhood matrix
 H: np.ndarray
@@ -37,6 +38,7 @@ def run(D: np.ndarray, E: np.ndarray, C: int = 9, shape=(3, 3), n_iter: int = 50
     :param n: smoothing parameter
     :return:
     """
+    global F
     grid = np.random.random((shape[0], shape[1], E.shape[1]))
     x_max = shape[0] - 1
     y_max = shape[1] - 1
@@ -59,6 +61,7 @@ def run(D: np.ndarray, E: np.ndarray, C: int = 9, shape=(3, 3), n_iter: int = 50
     init_matrix_of_relevance_weigths(C, q)
 
     # Initial assignment: obtain the initial partition
+    F = np.zeros(E.shape[0], dtype=object)
     update_assignment(E, n, D, C)
 
     N = E.shape[0]
@@ -78,6 +81,46 @@ def run(D: np.ndarray, E: np.ndarray, C: int = 9, shape=(3, 3), n_iter: int = 50
 
         # Step 3: assignment: obtain the partition
         update_assignment(E, n, D, C)
+
+        # Calculates quantization error
+        QE = calculate_quantization_error(E, N)
+        print('QE = ' + str(QE))
+
+        TE = calculate_topological_error(N, shape)
+        print('TE = ' + str(TE))
+
+
+def calculate_topological_error(N, shape):
+    def u(k, map_size):
+        first_r, second_r = F[k]
+        if (math.fabs(first_r - second_r) == 1) or (math.fabs(first_r - second_r) == map_size):
+            return 0
+        return 1
+
+    TE = 0
+    for k in range(N):
+        TE += u(k, shape[0])
+    TE = TE / N
+    return TE
+
+
+def BMU(E, r):
+    bmu = 0
+    prototypes_weights = V[r]
+    prototypes = G[r]
+    for i in range(len(prototypes)):
+        bmu += prototypes_weights[i] * E[prototypes[i]]
+    return bmu
+
+
+def calculate_quantization_error(E, N):
+    QE = 0
+    for k in range(N):
+        bmu = BMU(E, F[k][0])
+        QE += LA.norm(E[k] - bmu) ** 2
+    QE = QE / N
+
+    return QE
 
 
 def update_set_medoids(C, N, D, q):
@@ -106,15 +149,15 @@ def update_set_medoids(C, N, D, q):
 
 def update_set_medoids_for_cluster(D, G, N, q, r, H, F):
     g = np.zeros(N)
-    print('Updating medoids for cluster ' + str(r) + '...')
+    # print('Updating medoids for cluster ' + str(r) + '...')
     before = time.time()
     for h in range(N):
         for k in range(N):
-            g[h] += H[F[k], r] * D[k, h]
+            g[h] += H[F[k][0], r] * D[k, h]
     indices = np.argsort(g)[:q]
     G[r] = indices
     after = time.time()
-    print('Time spent: ' + str(after - before) + ' seconds.')
+    # print('Time spent: ' + str(after - before) + ' seconds.')
 
 
 def update_matrix_of_relevance_weights(N, n, D):
@@ -123,7 +166,7 @@ def update_matrix_of_relevance_weights(N, n, D):
             # numerator
             num_total = 0
             for k in range(N):
-                num_total += H[F[k], r] * D[k, G[r, e]]
+                num_total += H[F[k][0], r] * D[k, G[r, e]]
 
             total_l = 0
 
@@ -131,7 +174,7 @@ def update_matrix_of_relevance_weights(N, n, D):
             for l in G[r]:
                 den_total = 0
                 for k in range(N):
-                    den_total += H[F[k], r] * D[k, l]
+                    den_total += H[F[k][0], r] * D[k, l]
 
                 total_l += (num_total / den_total) ** (1 / (n - 1))
 
@@ -140,13 +183,16 @@ def update_matrix_of_relevance_weights(N, n, D):
 
 def f(k, n, D, C):
     r = -1
+    second_r = -1
     min_delta_V = sys.float_info.max
+    deltas = np.zeros(C)
     for s in range(C):
-        delta_V = calculate_delta_V(k, s, n, D, C)
-        if delta_V < min_delta_V:
-            min_delta_V = delta_V
-            r = s
-    return r
+        deltas[s] = calculate_delta_V(k, s, n, D, C)
+
+    sorted_deltas = deltas.argsort()
+    r = sorted_deltas[0]
+    second_r = sorted_deltas[1]
+    return r, second_r
 
 
 def calculate_delta_V(k, s, n, D, C):
@@ -164,15 +210,22 @@ def D_v_r(k, Gr, n, r, D):
 
 
 def update_assignment(E, n, D, C):
+    # During the assignment step, the vector of prototypes G and the matrix of relevance weights V are kept fixed.  The
+    # aim is to minimize the error function with respect to the partition P. The error function is minimized if for each
+    # e(k) in E, delta_V(e(k), G(f(e(k))) is minimized.  For a fixed vector or prototypes P and a fixed matrix of
+    # relevance weights V, delta_V(e(k), G(f(e(k))) is minimized if f(e(k)) = argmin(1<=s<=C)(delta_V(e(k), G(s)).
     global P
     global F
     P = defaultdict(list)
-    F = np.zeros(E.shape[0], dtype=int)
     for k in range(E.shape[0]):
-        print('Analisando elemento ' + str(k))
-        r = f(k, n, D, C)
+        # print('Analisando elemento ' + str(k))
+        r, second_r = f(k, n, D, C)
         P[r].append(E[k])
-        F[k] = r
+
+        if(F[k] != (r, second_r)):
+            print('mudou assignment')
+
+        F[k] = (r, second_r)
 
 
 def init_matrix_of_relevance_weigths(C, q):
