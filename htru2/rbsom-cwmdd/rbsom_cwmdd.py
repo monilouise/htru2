@@ -11,6 +11,7 @@ import time
 
 import multiprocessing
 from numpy import linalg as LA
+from scipy.special import binom
 
 # Neighbourhood matrix
 H: np.ndarray
@@ -26,7 +27,8 @@ P: defaultdict
 F: np.array
 
 
-def run(D: np.ndarray, E: np.ndarray, C: int = 9, shape=(3, 3), n_iter: int = 50, q: int = 5, n: float = 1.1):
+def run(D: np.ndarray, E: np.ndarray, Y: np.ndarray, C: int = 9, shape=(3, 3), n_iter: int = 50, q: int = 5,
+        n: float = 1.1):
     """
 
     :param D: Dissimilarity matrix
@@ -39,13 +41,12 @@ def run(D: np.ndarray, E: np.ndarray, C: int = 9, shape=(3, 3), n_iter: int = 50
     :return:
     """
     global F
-    grid = np.random.random((shape[0], shape[1], E.shape[1]))
     x_max = shape[0] - 1
     y_max = shape[1] - 1
 
     sigma_0 = calculate_initial_radius(x_max, y_max)
     sigma_f = calculate_final_radius()
-    delta = calculate_grid_squared_distance_matrix(C, grid, shape)
+    delta, neurons = calculate_grid_squared_distance_matrix(C, shape)
 
     # Initialization
     t = 0
@@ -86,20 +87,75 @@ def run(D: np.ndarray, E: np.ndarray, C: int = 9, shape=(3, 3), n_iter: int = 50
         QE = calculate_quantization_error(E, N)
         print('QE = ' + str(QE))
 
-        TE = calculate_topological_error(N, shape)
+        TE = calculate_topological_error(N, neurons)
         print('TE = ' + str(TE))
 
+        contingency_matrix, n_i, n_j, num_classes = calculate_contingency_matrix(C, Y)
+        ARI = calculate_adjusted_rand_index(C, N, contingency_matrix, n_i, n_j, num_classes)
+        print('ARI = ' + str(ARI))
 
-def calculate_topological_error(N, shape):
-    def u(k, map_size):
+        F_measure = calculate_F_measure(C, N, contingency_matrix, n_i, n_j, num_classes)
+        print('F-measure: ' + str(F_measure))
+
+
+def calculate_F_measure(C, N, contingency_matrix, n_i, n_j, num_classes):
+    F_measure = 0
+    for j in range(num_classes):
+        max_i = sys.float_info.min
+        for i in range(C):
+            max_calc = ((contingency_matrix[i, j] / n_i[i]) * contingency_matrix[i, j] / n_j[j]) / (
+                    (contingency_matrix[i, j] / n_i[i]) + (contingency_matrix[i, j] / n_j[j]))
+            if max_calc > max_i:
+                max_i = max_calc
+        F_measure += (n_j[j] / N) * max_i
+
+    return F_measure
+
+
+def calculate_adjusted_rand_index(C, N, contingency_matrix, n_i, n_j, num_classes):
+    # Calculates Adjusted Rand Index
+    m = 0
+    for i in range(C):
+        for j in range(num_classes):
+            m += binom(contingency_matrix[i, j], 2)
+    m1 = 0
+    for i in range(C):
+        m1 += binom(n_i[i], 2)
+    m2 = 0
+    for j in range(num_classes):
+        m2 += binom(n_j[j], 2)
+    M = binom(N, 2)
+    ARI = (m - (m1 * m2) / M) / (m1 / 2 + m2 / 2 - (m1 * m2) / M)
+    return ARI
+
+
+def calculate_contingency_matrix(C, Y):
+    num_classes = len(np.unique(Y))
+    contingency_matrix = np.zeros((C, num_classes))
+    for i in range(C):
+        for j in range(num_classes):
+            P_i = set(P[i])
+            C_j = set((np.where(Y == j)[0].flatten()))
+            contingency_matrix[i, j] = len(P_i.intersection(C_j))
+    n_i = np.sum(contingency_matrix, axis=1)
+    n_j = np.sum(contingency_matrix, axis=0)
+    return contingency_matrix, n_i, n_j, num_classes
+
+
+def calculate_topological_error(N, neurons):
+    def u(k):
         first_r, second_r = F[k]
-        if (math.fabs(first_r - second_r) == 1) or (math.fabs(first_r - second_r) == map_size):
+        first_x = neurons[first_r]['x']
+        first_y = neurons[first_r]['y']
+        second_x = neurons[second_r]['x']
+        second_y = neurons[second_r]['y']
+        if abs(first_x - second_x) <= 1 and abs(first_y - second_y) <= 1:
             return 0
         return 1
 
     TE = 0
     for k in range(N):
-        TE += u(k, shape[0])
+        TE += u(k)
     TE = TE / N
     return TE
 
@@ -182,9 +238,6 @@ def update_matrix_of_relevance_weights(N, n, D):
 
 
 def f(k, n, D, C):
-    r = -1
-    second_r = -1
-    min_delta_V = sys.float_info.max
     deltas = np.zeros(C)
     for s in range(C):
         deltas[s] = calculate_delta_V(k, s, n, D, C)
@@ -218,13 +271,9 @@ def update_assignment(E, n, D, C):
     global F
     P = defaultdict(list)
     for k in range(E.shape[0]):
-        # print('Analisando elemento ' + str(k))
         r, second_r = f(k, n, D, C)
-        P[r].append(E[k])
-
-        if(F[k] != (r, second_r)):
-            print('mudou assignment')
-
+        # P[r].append(E[k])
+        P[r].append(k)
         F[k] = (r, second_r)
 
 
@@ -262,11 +311,11 @@ def calculate_neighbourhood_function(C, delta, sigma):
             H[s, r] = math.exp(-(delta[s, r] / (2 * (sigma ** 2))))
 
 
-def calculate_grid_squared_distance_matrix(C, grid, shape):
+def calculate_grid_squared_distance_matrix(C, shape):
     neurons = []
     for i in range(shape[0]):
         for j in range(shape[1]):
-            neurons.append({'w': grid[i][j], 'x': i, 'y': j})
+            neurons.append({'x': i, 'y': j})
     # the squared distance matrix between the nodes of the grid
     delta = np.zeros((C, C))
     for i in range(C):
@@ -276,7 +325,7 @@ def calculate_grid_squared_distance_matrix(C, grid, shape):
             else:
                 delta[i, j] = (neurons[i]['x'] - neurons[j]['x']) ** 2 + (neurons[i]['y'] - neurons[j]['y']) ** 2
 
-    return delta
+    return delta, neurons
 
 
 def calculate_final_radius():
@@ -314,9 +363,11 @@ def normalize(dist_mat):
 
 if __name__ == '__main__':
     df = pd.read_csv('../../data/HTRU_2.csv', header=None)
-    # df = df.iloc[:, :-1]
-    df = df.iloc[:100, :-1]
+    Y = df.iloc[:, -1]
+    df = df.iloc[:, :-1]
+    #df = df.iloc[:100, :-1]
     X = df.to_numpy()
+    #Y = Y.to_numpy()[:100]
 
     dist_mat = None
 
@@ -331,4 +382,4 @@ if __name__ == '__main__':
         with open('D.pickle', 'wb') as outfile:
             pickle.dump(dist_mat, outfile)
 
-    run(dist_mat, X)
+    run(dist_mat, X, Y)
