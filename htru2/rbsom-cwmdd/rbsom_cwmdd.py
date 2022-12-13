@@ -1,17 +1,16 @@
 import math
+import multiprocessing
+import pickle
+import random
 import sys
+import time
+from collections import defaultdict
 
 import numpy as np
 import pandas as pd
-import random
-from collections import defaultdict
-from dissimilarity import calculate_dissimilarity_matrix
-import pickle
-import time
-
-import multiprocessing
-from numpy import linalg as LA
 from scipy.special import binom
+
+from dissimilarity import calculate_dissimilarity_matrix
 
 # Neighbourhood matrix
 H: np.ndarray
@@ -27,7 +26,7 @@ P: defaultdict
 F: np.array
 
 
-def run(D: np.ndarray, E: np.ndarray, Y: np.ndarray, C: int = 9, shape=(3, 3), n_iter: int = 50, q: int = 5,
+def run(D: np.ndarray, E: np.ndarray, Y: np.ndarray, C: int = 36, shape=(6, 6), n_iter: int = 50, q: int = 5,
         n: float = 1.1):
     """
 
@@ -41,8 +40,10 @@ def run(D: np.ndarray, E: np.ndarray, Y: np.ndarray, C: int = 9, shape=(3, 3), n
     :return:
     """
     global F
-    x_max = shape[0] - 1
-    y_max = shape[1] - 1
+
+    before = time.time()
+    x_max = shape[0]
+    y_max = shape[1]
 
     sigma_0 = calculate_initial_radius(x_max, y_max)
     sigma_f = calculate_final_radius()
@@ -68,8 +69,11 @@ def run(D: np.ndarray, E: np.ndarray, Y: np.ndarray, C: int = 9, shape=(3, 3), n
     N = E.shape[0]
 
     while t < n_iter:
+        if t < 10:
+            print('V Matrix at iter ' + str(t) + ':')
+            print(V)
         t += 1
-        sigma = sigma_0 * (sigma_f / sigma_0) ** (t / n_iter)
+        sigma = sigma_0 * ((sigma_f / sigma_0) ** (t / (n_iter - 1)))
         calculate_neighbourhood_function(C, delta, sigma)
 
         # Step 1: representation: compute the elements of the vector of set-medoids.
@@ -84,7 +88,7 @@ def run(D: np.ndarray, E: np.ndarray, Y: np.ndarray, C: int = 9, shape=(3, 3), n
         update_assignment(E, n, D, C)
 
         # Calculates quantization error
-        QE = calculate_quantization_error(E, N)
+        QE = calculate_quantization_error(N, n, D)
         print('QE = ' + str(QE))
 
         TE = calculate_topological_error(N, neurons)
@@ -97,16 +101,29 @@ def run(D: np.ndarray, E: np.ndarray, Y: np.ndarray, C: int = 9, shape=(3, 3), n
         F_measure = calculate_F_measure(C, N, contingency_matrix, n_i, n_j, num_classes)
         print('F-measure: ' + str(F_measure))
 
+        if t >= n_iter - 10:
+            print('V Matrix at iter ' + str(t) + ':')
+            print(V)
+
+    print('G Matrix:')
+    print(G)
+    print('Confusion matrix:')
+    print(contingency_matrix)
+
+    after = time.time()
+    print(str(after - before) + ' seconds.')
+
 
 def calculate_F_measure(C, N, contingency_matrix, n_i, n_j, num_classes):
     F_measure = 0
     for j in range(num_classes):
         max_i = sys.float_info.min
         for i in range(C):
-            max_calc = ((contingency_matrix[i, j] / n_i[i]) * contingency_matrix[i, j] / n_j[j]) / (
-                    (contingency_matrix[i, j] / n_i[i]) + (contingency_matrix[i, j] / n_j[j]))
-            if max_calc > max_i:
-                max_i = max_calc
+            if n_i[i] != 0 and n_j[j] != 0 and contingency_matrix[i, j] != 0:
+                max_calc = ((contingency_matrix[i, j] / n_i[i]) * contingency_matrix[i, j] / n_j[j]) / (
+                        (contingency_matrix[i, j] / n_i[i]) + (contingency_matrix[i, j] / n_j[j]))
+                if max_calc > max_i:
+                    max_i = max_calc
         F_measure += (n_j[j] / N) * max_i
 
     return F_measure
@@ -160,20 +177,12 @@ def calculate_topological_error(N, neurons):
     return TE
 
 
-def BMU(E, r):
-    bmu = 0
-    prototypes_weights = V[r]
-    prototypes = G[r]
-    for i in range(len(prototypes)):
-        bmu += prototypes_weights[i] * E[prototypes[i]]
-    return bmu
-
-
-def calculate_quantization_error(E, N):
+def calculate_quantization_error(N, n, D):
     QE = 0
     for k in range(N):
-        bmu = BMU(E, F[k][0])
-        QE += LA.norm(E[k] - bmu) ** 2
+        # bmu = BMU(E, F[k][0])
+        # QE += LA.norm(E[k] - bmu) ** 2
+        QE += (D_v_r(k, G[F[k][0]], n, F[k][0], D, V)) ** 2
     QE = QE / N
 
     return QE
@@ -210,6 +219,7 @@ def update_set_medoids_for_cluster(D, G, N, q, r, H, F):
     for h in range(N):
         for k in range(N):
             g[h] += H[F[k][0], r] * D[k, h]
+            # g[h] += H[f(k, n, D, C, H, G, V)[0], r] * D[k, h]
     indices = np.argsort(g)[:q]
     G[r] = indices
     after = time.time()
@@ -223,6 +233,7 @@ def update_matrix_of_relevance_weights(N, n, D):
             num_total = 0
             for k in range(N):
                 num_total += H[F[k][0], r] * D[k, G[r, e]]
+                # num_total += H[f(k, n, D, C, H, G, V)[0], r] * D[k, G[r, e]]
 
             total_l = 0
 
@@ -237,10 +248,10 @@ def update_matrix_of_relevance_weights(N, n, D):
             V[r, e] = 1 / total_l
 
 
-def f(k, n, D, C):
+def f(k, n, D, C, H, G, V):
     deltas = np.zeros(C)
     for s in range(C):
-        deltas[s] = calculate_delta_V(k, s, n, D, C)
+        deltas[s] = calculate_delta_V(k, s, n, D, C, H, G, V)
 
     sorted_deltas = deltas.argsort()
     r = sorted_deltas[0]
@@ -248,14 +259,14 @@ def f(k, n, D, C):
     return r, second_r
 
 
-def calculate_delta_V(k, s, n, D, C):
+def calculate_delta_V(k, s, n, D, C, H, G, V):
     delta_V = 0
     for r in range(C):
-        delta_V += H[s, r] * D_v_r(k, G[r], n, r, D)
+        delta_V += H[s, r] * D_v_r(k, G[r], n, r, D, V)
     return delta_V
 
 
-def D_v_r(k, Gr, n, r, D):
+def D_v_r(k, Gr, n, r, D, V):
     total = 0
     for i in range(len(Gr)):
         total += (V[r, i] ** n) * D[k, Gr[i]]
@@ -271,7 +282,7 @@ def update_assignment(E, n, D, C):
     global F
     P = defaultdict(list)
     for k in range(E.shape[0]):
-        r, second_r = f(k, n, D, C)
+        r, second_r = f(k, n, D, C, H, G, V)
         # P[r].append(E[k])
         P[r].append(k)
         F[k] = (r, second_r)
@@ -363,12 +374,19 @@ def normalize(dist_mat):
 
 if __name__ == '__main__':
     df = pd.read_csv('../../data/HTRU_2.csv', header=None)
+
+    # Gets aprox. 10% from the positive/negative examples, respectively
+    y_column = len(df.columns) - 1
+    df_pos = df[df[y_column] == 1]
+    df_neg = df[df[y_column] == 0]
+    df_pos = df_pos.sample(round(df_pos.shape[0] / 10), random_state=42)
+    df_neg = df_neg.sample(round(df_neg.shape[0] / 10), random_state=42)
+    df = pd.concat([df_pos, df_neg])
+    df = df.sample(frac=1).reset_index(drop=True)
+
     Y = df.iloc[:, -1]
     df = df.iloc[:, :-1]
-    #df = df.iloc[:100, :-1]
     X = df.to_numpy()
-    #Y = Y.to_numpy()[:100]
-
     dist_mat = None
 
     try:
