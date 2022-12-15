@@ -105,13 +105,34 @@ def run(D: np.ndarray, E: np.ndarray, Y: np.ndarray, C: int = 36, shape=(6, 6), 
             print('V Matrix at iter ' + str(t) + ':')
             print(V)
 
+        print('Objective function value:')
+        J = obj_function(N, C, n, D)
+        print(J)
+
     print('G Matrix:')
     print(G)
     print('Confusion matrix:')
     print(contingency_matrix)
 
+    print('Final objective function value:')
+    J = obj_function(N)
+    print(J)
+
     after = time.time()
     print(str(after - before) + ' seconds.')
+
+
+def obj_function(N, C, n, D):
+    def delta_v(k):
+        total = 0
+        for r in range(C):
+            total += H[F[k][0], r] * D_v_r(k, G[r], n, r, D, V)
+        return total
+
+    J = 0
+    for k in range(N):
+        J += delta_v(k)
+    return J
 
 
 def calculate_F_measure(C, N, contingency_matrix, n_i, n_j, num_classes):
