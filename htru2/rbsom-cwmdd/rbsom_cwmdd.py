@@ -115,7 +115,7 @@ def run(D: np.ndarray, E: np.ndarray, Y: np.ndarray, C: int = 36, shape=(6, 6), 
     print(contingency_matrix)
 
     print('Final objective function value:')
-    J = obj_function(N)
+    J = obj_function(N, C, n, D)
     print(J)
 
     after = time.time()
