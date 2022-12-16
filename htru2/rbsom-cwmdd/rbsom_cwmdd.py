@@ -6,8 +6,10 @@ import sys
 import time
 from collections import defaultdict
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sn
 from scipy.special import binom
 
 from dissimilarity import calculate_dissimilarity_matrix
@@ -113,6 +115,8 @@ def run(D: np.ndarray, E: np.ndarray, Y: np.ndarray, C: int = 36, shape=(6, 6), 
     print(G)
     print('Confusion matrix:')
     print(contingency_matrix)
+    sn.heatmap(contingency_matrix, annot=True)
+    plt.show()
 
     print('Final objective function value:')
     J = obj_function(N, C, n, D)
