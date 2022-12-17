@@ -398,31 +398,39 @@ def normalize(dist_mat):
 
 
 if __name__ == '__main__':
-    df = pd.read_csv('../../data/HTRU_2.csv', header=None)
-
-    # Gets aprox. 10% from the positive/negative examples, respectively
-    y_column = len(df.columns) - 1
-    df_pos = df[df[y_column] == 1]
-    df_neg = df[df[y_column] == 0]
-    df_pos = df_pos.sample(round(df_pos.shape[0] / 10), random_state=42)
-    df_neg = df_neg.sample(round(df_neg.shape[0] / 10), random_state=42)
-    df = pd.concat([df_pos, df_neg])
-    df = df.sample(frac=1).reset_index(drop=True)
-
-    Y = df.iloc[:, -1]
-    df = df.iloc[:, :-1]
-    X = df.to_numpy()
-    dist_mat = None
 
     try:
         with open('D.pickle', 'rb') as infile:
             dist_mat = pickle.load(infile)
+        with open('X.pickle', 'rb') as infile:
+            X = pickle.load(infile)
+        with open('Y.pickle', 'rb') as infile:
+            Y = pickle.load(infile)
     except FileNotFoundError:
+        df = pd.read_csv('../../data/HTRU_2.csv', header=None)
+
+        # Gets aprox. 10% from the positive/negative examples, respectively
+        y_column = len(df.columns) - 1
+        df_pos = df[df[y_column] == 1]
+        df_neg = df[df[y_column] == 0]
+        df_pos = df_pos.sample(round(df_pos.shape[0] / 10), random_state=42)
+        df_neg = df_neg.sample(round(df_neg.shape[0] / 10), random_state=42)
+        df = pd.concat([df_pos, df_neg])
+        df = df.sample(frac=1, random_state=42).reset_index(drop=True)
+
+        Y = df.iloc[:, -1]
+        df = df.iloc[:, :-1]
+        X = df.to_numpy()
+
         dist_mat = calculate_dissimilarity_matrix(X)
         dist_mat = normalize(dist_mat)
 
-        # Saves dissimilarity matrix
+        # Saves dissimilarity matrix and data
         with open('D.pickle', 'wb') as outfile:
             pickle.dump(dist_mat, outfile)
+        with open('X.pickle', 'wb') as outfile:
+            pickle.dump(X, outfile)
+        with open('Y.pickle', 'wb') as outfile:
+            pickle.dump(Y, outfile)
 
     run(dist_mat, X, Y)
