@@ -13,6 +13,8 @@ import seaborn as sn
 from scipy.special import binom
 
 from dissimilarity import calculate_dissimilarity_matrix
+import logging
+import os
 
 # Neighbourhood matrix
 H: np.ndarray
@@ -28,7 +30,7 @@ P: defaultdict
 F: np.array
 
 
-def run(D: np.ndarray, E: np.ndarray, Y: np.ndarray, C: int = 36, shape=(6, 6), n_iter: int = 50, q: int = 5,
+def run(idx:int, D: np.ndarray, E: np.ndarray, Y: np.ndarray, C: int = 36, shape=(6, 6), n_iter: int = 50, q: int = 5,
         n: float = 1.1):
     """
 
@@ -72,8 +74,8 @@ def run(D: np.ndarray, E: np.ndarray, Y: np.ndarray, C: int = 36, shape=(6, 6), 
 
     while t < n_iter:
         if t < 10:
-            print('V Matrix at iter ' + str(t) + ':')
-            print(V)
+            logging.info('V Matrix at iter ' + str(t) + ':')
+            logging.info(V)
         t += 1
         sigma = sigma_0 * ((sigma_f / sigma_0) ** (t / (n_iter - 1)))
         calculate_neighbourhood_function(C, delta, sigma)
@@ -91,39 +93,40 @@ def run(D: np.ndarray, E: np.ndarray, Y: np.ndarray, C: int = 36, shape=(6, 6), 
 
         # Calculates quantization error
         QE = calculate_quantization_error(N, n, D)
-        print('QE = ' + str(QE))
+        logging.info('QE = ' + str(QE))
 
         TE = calculate_topological_error(N, neurons)
-        print('TE = ' + str(TE))
+        logging.info('TE = ' + str(TE))
 
         contingency_matrix, n_i, n_j, num_classes = calculate_contingency_matrix(C, Y)
         ARI = calculate_adjusted_rand_index(C, N, contingency_matrix, n_i, n_j, num_classes)
-        print('ARI = ' + str(ARI))
+        logging.info('ARI = ' + str(ARI))
 
         F_measure = calculate_F_measure(C, N, contingency_matrix, n_i, n_j, num_classes)
-        print('F-measure: ' + str(F_measure))
+        logging.info('F-measure: ' + str(F_measure))
 
         if t >= n_iter - 10:
-            print('V Matrix at iter ' + str(t) + ':')
-            print(V)
+            logging.info('V Matrix at iter ' + str(t) + ':')
+            logging.info(V)
 
-        print('Objective function value:')
+        logging.info('Objective function value:')
         J = obj_function(N, C, n, D)
-        print(J)
+        logging.info(J)
 
-    print('G Matrix:')
-    print(G)
-    print('Confusion matrix:')
-    print(contingency_matrix)
+    logging.info('G Matrix:')
+    logging.info(G)
+    logging.info('Confusion matrix:')
+    logging.info(contingency_matrix)
     sn.heatmap(contingency_matrix, annot=True)
-    plt.show()
+    #plt.show()
+    plt.savefig('Figure_'+ str(idx) + '.png')
 
-    print('Final objective function value:')
+    logging.info('Final objective function value:')
     J = obj_function(N, C, n, D)
-    print(J)
+    logging.info(J)
 
     after = time.time()
-    print(str(after - before) + ' seconds.')
+    logging.info(str(after - before) + ' seconds.')
 
 
 def obj_function(N, C, n, D):
@@ -234,7 +237,7 @@ def update_set_medoids(C, N, D, q):
         j.join()
 
     after = time.time()
-    print('Set-medoids updating complete.  Time elapsed = ' + str(after - before))
+    logging.info('Set-medoids updating complete.  Time elapsed = ' + str(after - before))
 
 
 def update_set_medoids_for_cluster(D, G, N, q, r, H, F):
@@ -398,7 +401,7 @@ def normalize(dist_mat):
 
 
 if __name__ == '__main__':
-
+    logging.basicConfig(filename='log.txt', level=logging.DEBUG)
     try:
         with open('D.pickle', 'rb') as infile:
             dist_mat = pickle.load(infile)
@@ -433,4 +436,7 @@ if __name__ == '__main__':
         with open('Y.pickle', 'wb') as outfile:
             pickle.dump(Y, outfile)
 
-    run(dist_mat, X, Y)
+    for idx in range(50):
+        logging.basicConfig(filename='log_' + str(idx) + '.txt', level=logging.DEBUG)
+        run(idx, dist_mat, X, Y)
+
